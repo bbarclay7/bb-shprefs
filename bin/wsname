@@ -1,0 +1,96 @@
+#!/bin/tcsh -f
+
+if ( "x$1x" == "x-hx" || "x$1x" == "x-helpx" || "x$1x" == "xx" ) then
+  set bn=$0:t
+  if ( "x$0:ex" != "xx" ) set bn=${bn}.$0:e
+  set eq=`echo $bn | sed 's/./=/g'`
+
+  cat <<EOF
+
+$bn - gnome workspace name utility
+$eq===============================
+$bn -p            # prompt to name current workspace
+$bn -prompt       # prompt to name current workspace
+$bn -r            # reset workspace name to workspace number
+$bn -reset        # reset workspace name to workspace number
+$bn -dialog       # present dialog
+$bn '<name>'      # assigns <name> to current workspace 
+$bn '<name> 'num' # assigns <name> to workspace number <num>
+$bn -g            # get <name> of current workspace
+
+EOF
+  exit 1
+endif
+set gconf=/opt/gnome/bin/gconftool-2
+if ( -e /usr/bin/gconftool-2 ) set gconf=/usr/bin/gconftool-2
+if ($?WSNAME_DIRECT_HACK ) then
+      alias gconftool_exe 'ssh -t $HOST '$gconf
+else
+  if ($?REMOTEHOST) then
+    alias gconftool_exe 'ssh -t $REMOTEHOST '$gconf
+  else
+    alias gconftool_exe 'ssh -t $HOST '$gconf
+  endif
+endif
+
+alias gconftool_exe $gconf
+
+#exit 1
+set metacity_wsname_file=$HOME/.gconf/apps/metacity/workspace_names/%gconf.xml
+set xmllint_exe=xmllint
+set xprop_exe=/usr/bin/X11/xprop
+if ( -e /usr/bin/xprop ) then
+  set xprop_exe=/usr/bin/xprop
+endif
+
+if ( "x$1x" == "x-gx") then
+  if ( -e $metacity_wsname_file ) then
+    set wsnum=`$xprop_exe -root _NET_CURRENT_DESKTOP | awk '{print $3}'`
+    set wsnum=`expr $wsnum + 1`
+    # http://www.w3schools.com/xpath/xpath_syntax.asp
+    set curname=`$xmllint_exe --xpath '//entry[@name="name_'$wsnum'"]/stringvalue/text()' $metacity_wsname_file`
+    exit 0
+  else
+    if ( $?WSNAME ) then
+       echo $WSNAME
+       exit 0
+    else
+       echo 'undef wsname'
+       exit 0
+    endif
+  endif
+endif
+
+
+
+if (  "x$2x" != "xx" ) then
+  set wsnum = "$2"
+else
+  set wsnum=`/usr/bin/X11/xprop -root _NET_CURRENT_DESKTOP | awk '{print $3}'`
+  set wsnum=`expr $wsnum + 1`
+endif 
+
+if (  "x$1x" != "x-px" && "x$1x" != "x-promptx" ) then
+  set wsname = "$1"
+else
+  set curname=`gconftool_exe --get /apps/metacity/workspace_names/name_$wsnum`
+  echo "Enter name for workspace $wsnum ($curname): "
+  set tmpfile=/tmp/wsname_$$
+  perl -MTerm::ReadLine -e "open K, '>$tmpfile'; print K Term::ReadLine->new()->readline('->','')"
+  set wsname=`cat $tmpfile`
+  rm -f $tmpfile
+  /bin/echo "requested wsname is [ $wsname ]"
+endif
+
+if ( "x$1x" == "x-rx" || "x$1x" == "x-resetx" ) then
+  set wsnum=`/usr/bin/X11/xprop -root _NET_CURRENT_DESKTOP | awk '{print $3}'`
+  set wsnum=`expr $wsnum + 1`
+  set wsname=$wsnum
+endif
+
+/bin/echo gconftool_exe --type string --set /apps/metacity/workspace_names/name_$wsnum "$wsname"
+
+gconftool_exe --type string --set /apps/metacity/workspace_names/name_$wsnum "$wsname"
+
+
+

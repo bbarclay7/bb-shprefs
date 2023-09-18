@@ -1,0 +1,78 @@
+[merge]
+        tool = ediff
+
+[mergetool "ediff"]
+        cmd = emacs --eval \"(ediff-merge-files-with-ancestor \\\"$LOCAL\\\" \\\"$REMOTE\\\" \\\"$BASE\\\" nil \\\"$MERGED\\\")\"
+
+[color]
+	branch = auto
+	ui = true
+[pack]
+	threads = 0
+
+[user]
+	name = Brandon Barclay
+	email = brandon@barclay.org
+
+[alias]
+        gbranch = log --graph --simplify-by-decoration --pretty=format:'%C(yellow)%h%C(white)%d %C(bold black)%ar %C(reset)%n' --all
+	amend = commit --amend --no-edit
+	last = cat-file commit HEAD
+	lg = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
+        lgt = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative --simplify-by-decoration --all
+	alg = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%aD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
+        algt = log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%aD) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative --simplify-by-decoration --all
+	ci = commit
+	co = checkout
+	parent = remote show origin
+	st = status
+	ignores = clean -ndX
+	rmignores = clean -fdX
+	extras = clean -f -d -n
+	rmextras = clean -f -d 
+        permission-reset = "!git diff -p | grep -E '^(diff|old mode|new mode)' | sed -e 's/^old/NEW/;s/^new/old/;s/^NEW/new/' | git apply"
+	poosh = git-poosh
+        audit = log -p --color-words
+	snapshot = !git stash save "snapshot: $(date)" && git stash apply "stash@{0}"
+
+	assume   = update-index --assume-unchanged
+	unassume = update-index --no-assume-unchanged
+	assumed  = "!git ls-files -v | grep ^h | cut -c 3-"
+
+	lgf = log --name-only --oneline
+        ours = !git checkout --ours
+        theirs = !git checkout --theirs
+
+
+        parent = remote show -n origin
+        root = rev-parse --show-toplevel
+	cpx = cherry-pick -x
+
+
+[push]
+	default = matching
+
+
+[diff]
+# Tell git diff to use mnemonic prefixes (index, work tree, commit, object) instead of the standard a and b notation:
+        tool = meld
+	mnemonicprefix = true
+        renames = true
+[http]
+	sslVerify = false
+
+[https]
+	sslVerify = false
+
+
+[log]
+	decorate = true
+
+[merge]
+	conflictstyle = diff3
+
+[filter "lfs"]
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f

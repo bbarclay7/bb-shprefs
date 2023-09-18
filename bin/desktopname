@@ -1,0 +1,91 @@
+#!/usr/bin/env perl
+# -*- Mode: Perl; -*-
+
+
+# this script prints the current X workspace name.
+
+if (defined $ENV{DESKTOPNAME}) {
+  print $ENV{DESKTOPNAME};
+  exit 0;
+}
+
+my $remotecmd = "";
+my $proptext = `$remotecmd xprop -root`;
+my @lines = split /\n/, $proptext;
+
+my $state = 1;
+my $hold_var = "";
+my $hold_type = "";
+my $hold_content = "";
+my %xprops = ();
+while (my $line = shift @lines){
+    chomp $line;
+    if ($state == 1){
+        if ($line =~ /([A-Za-z0-9_]+)(\(([^\)]+)\))?\s*[=:]\s*(\S.*)/){
+            my $var = $1;
+            my $type = $3;
+            my $content = $4;
+            
+            if ($content =~ /^\s*0x/){
+                $content =~ s/0x0,/0x2c,/sg;
+                $content =~ s/\s+//g;
+                $content = join( "", map( { s/0x0*//; chr(hex($_)); } split( /,/, $content)));
+            }
+            
+            if ($content =~ /,/){
+                
+                $xprops{$var} = [ map { my $in = $_;
+                                      if ($in =~ /^"(.*)"$/){
+                                          $1
+                                      } else {
+                                          $in
+                                      }
+                } ( split /,\s*/, $content ) ];
+                
+            } else {
+                $xprops{$var} = $content;
+            }
+        }elsif ($line =~ /([A-Za-z0-9_]+)(\(([^\)]+)\))?\s*=\s*(.*)/){
+            my $var = $1;
+            my $type = $3;
+            my $content = $4;
+            $xprops{$var} = "";
+        } elsif ($line =~ /([A-Za-z0-9_]+)(\(([^\)]+)\))?\s*[:=]\s*$/){
+            $hold_var = $1;
+            $hold_type = $3;
+            $state = 2;
+        } else {
+            #die "? >> $line";
+        }
+    } elsif ($state == 2){
+        if ($line =~ /^\s+(.*)/){
+            $hold_content .= $1 . "\n";
+        } else {
+            $xprops{$hold_var} = $hold_content;
+            $hold_var = "";
+            $hold_type = "";
+            $hold_content = "";
+            $state = 1;
+            unshift @lines, $line
+        }
+    } else {
+        #die "? >> state=$state ; line=$line";
+    }
+    #print "out state=$state\n";
+}
+
+my $desktopnum = $xprops{_NET_CURRENT_DESKTOP};
+
+my @names = @{ $xprops{_NET_DESKTOP_NAMES} };
+
+my $name = $names[$desktopnum];
+
+
+
+if ( grep { /-safestring/ } @ARGV ){
+    $name =~ s/[^A-Za-z0-9_.\/]/_/g;
+}
+
+print "$name";
+exit 0;
+

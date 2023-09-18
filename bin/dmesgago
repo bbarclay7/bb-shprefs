@@ -1,0 +1,104 @@
+#!/usr/bin/env ruby
+# -*- mode: Ruby -*-
+
+Time.now
+require 'yaml'
+$stale_hours = 12
+  if ARGV.length > 0
+    $stale_hours = ARGV[0].to_i
+  end
+
+def epoch_to_ago(epoch)
+
+  # unit, modulus
+  conv = YAML.load("---
+- 
+  - secs
+  - 60
+-
+  - mins
+  - 60
+-
+  - hrs
+  - 24
+-
+  - days
+  - 7
+-
+  - weeks
+  - 52
+-
+  - years
+  - 200000
+")
+
+
+  difference = Time.now.to_i - epoch
+  full_diff_ary = []
+  conv.each{|i|
+    unit = i[0]
+    modulus = i[1].to_i
+    
+    value = difference % modulus
+    difference /= modulus
+    
+    full_diff_ary << [value,unit] if value > 0
+  }
+  full_diff_ary = [[0,'secs']] if full_diff_ary.length == 0
+#  rv = ""
+#  item_count = [full_diff_ary.length,2].min
+#  rv = full_diff_ary[item_count*-1..-1].reverse.map{|item|
+#    item.join(" ")
+#  }.join(", ") +" ago"
+#  rv = full_diff_ary[item_count*-1..-1].reverse.map{|item|
+#    item.join(" ")
+#  }.join(", ") +" ago"
+ 
+  val,unit = full_diff_ary[-1]
+  unit = unit.sub(/s$/,'') if val == 1
+  spaces = " "*(5-unit.length)
+  return sprintf("%3d %s ago%s",val,unit,spaces)
+end
+
+
+#cmd = %w{ls -lrt --time-style +DD%sDD --color} + ARGV
+cmd = "sudo /usr/bin/dmesg"
+uptime = `cut -d " " -f 1 /proc/uptime`.chomp.to_f
+
+rv = 0
+
+IO.popen(cmd){|f|
+  f.each{|line_raw|
+    line=line_raw.encode('UTF-8', 'ascii', invalid: :replace, undef: :replace, replace: '?')
+    #puts line
+
+    if m = line.match(/^\[(\d+\.\d*)\](.*)/)#:(.*)/)
+      timestamp = m[1].to_f
+      #puts "ok"
+      message = m[2]
+      epoch = (Time.now.to_f - uptime + timestamp).to_i
+      age = Time.now.to_f - epoch.to_f
+      show = 1
+      if $stale_hours
+        if age / 3600 > $stale_hours
+          show = nil
+        end
+      end
+
+      #epoch = timestamp.gsub(/DD/,'').to_i
+      ago = epoch_to_ago(epoch).gsub(/\s+$/,'')
+      if show
+        thedate = Time.at(epoch)
+        puts sprintf("%20s @ %10s -- %s", ago, thedate, message)
+        rv = 1
+      end
+    else
+      #puts "nope"
+    end
+  }
+}
+
+if rv == 0
+  puts "dmesg has nothing to report for the foregoing #{$stale_hours} hours."
+end
+exit rv

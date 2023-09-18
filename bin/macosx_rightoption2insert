@@ -1,0 +1,3 @@
+
+#251 - keycode for right alt/option key on macbook air keyboard, between right command/left arrow (per xev)
+xmodmap -e "keycode 249 = Insert"

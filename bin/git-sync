@@ -1,0 +1,15 @@
+#!/bin/bash
+
+host=$(hostname -f)
+comment="> merged automatically from $USER@$host"
+if [[ $@ == "" ]]; then
+  echo empty
+else
+  echo not empty
+  comment="> $@ "
+fi
+
+#git add .
+git add --all .
+git commit -m "$comment"
+GIT_MERGE_AUTOEDIT=no git pull && git push

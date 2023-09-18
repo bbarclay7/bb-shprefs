@@ -1,0 +1,53 @@
+#!/usr/bin/perl -w
+
+# Try to get a simple dialog box to work.
+
+use Tk;
+use Tk::DialogBox;
+
+my $mw = MainWindow->new;
+# Get rid of main window, but keep some of it around.
+$mw->withdraw();
+#print "Main window created, withdrawn\n";
+
+
+my @sizes = ();
+my %res2size;
+my $res_raw = `/usr/bin/X11/xrandr`;
+foreach my $line (split /\n/, $res_raw){
+    if ($line =~ /^\s*\*?\s*(\d+)\s+(\d+)\s*x\s*(\d+)/){
+	$sizes[$1] = "$2x$3";
+	$res2size{ "$2x$3" } = $1;
+    }
+}
+#@sizes = ( "1920x1080", @sizes);
+
+my $dialog = $mw->DialogBox (-title => "Choose your resolution",
+                             -buttons => [@sizes,'abort'] );
+my $item = $dialog->Show();                # ???
+exit 0 if $item eq 'abort';
+&fix_frozen_resolution;
+system "xrandr -s " . $res2size{$item};
+
+#  Done
+
+sub fix_frozen_resolution {
+    my $vncconfig = "vncconfig";
+    my $xrandr = "/usr/bin/X11/xrandr";
+    
+    my @_tmp_res_list = `$xrandr -q`;
+
+    my $last_res_randr = undef;
+    foreach my $i (@_tmp_res_list){
+        next if ($i !~ /\*/);
+        $i =~ s/\*/ /;
+        my @tmp_res = split/\s+/, $i;
+        $last_res_randr = $tmp_res[2].$tmp_res[3].$tmp_res[4];
+    }
+    my $vnc_randr = `$vncconfig -get randr`;
+    my $vnc_result = `$vncconfig -set randr=1000x1000`;
+    $vnc_result = `$xrandr -s 0`;
+    $vnc_result = `$vncconfig -set randr=$vnc_randr`;
+    $vnc_result = `$xrandr -s $last_res_randr`;
+    return 1;
+}

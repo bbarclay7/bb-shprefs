@@ -1,0 +1,2 @@
+xprop -root | grep ^_NET_CURRENT_DESKTOP | awk '{print $3}' | tr "\n" " " | sed 's/ //'
+

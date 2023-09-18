@@ -1,0 +1,61 @@
+#!/usr/bin/env/ruby
+# -*- Mode: Ruby; -*-
+$script = $0.sub(/^.*\//,'')
+$git_exe = 'git'
+
+def e(str); $stderr.puts "-E- #{$script}: #{str.chomp}"; exit 1; end
+def w(str); $stderr.puts "-W- #{$script}: #{str.chomp}"; end
+def i(str); $stderr.puts "-I- #{$script}: #{str.chomp}"; end
+def git_config_item(cfgfile,section,variable)
+  cur_section = ""
+  rv = nil
+  File.open(cfgfile){|fh|
+    fh.each{|line|
+      if m = line.match(/^\s*\[\s*([^\]]*?)\s*\]\s*$/)
+        cur_section = m[1]
+      end  
+      if cur_section == section and m = line.match(/^\s*#{variable}\s*=\s*(.*?)\s*$/)
+        rv = m[1]
+        break
+      end
+    }
+  }
+  return rv
+end
+def ssh_backticks(user,host,command)
+  dq="\"'\"'\""
+  cmd="#{command.gsub(/\"/,dq)}"
+  #p cmd
+  result=`ssh #{user}@#{host} \"#{cmd}\" 2>&1`
+  return result,$?.to_i
+end
+
+def is_bare_repo(user,host,path)
+  command = "cd #{path} && ls -l config"
+  result,rv = ssh_backticks(user,host,command)
+  puts result if nil
+  return 1 if rv == 0
+  return nil
+#  p [result,rv]
+end
+
+git_root = `#{$git_exe} rev-parse --show-toplevel 2>&1`.chomp
+git_branch = `#{$git_exe} status | head -1 | sed 's/# On branch //'`.chomp
+hostname = `/bin/hostname --fqdn`.chomp
+
+e "not in a git repo" if git_root.match(/^fatal:/)
+
+cfgfile=git_root+"/.git/config"
+src=git_config_item(cfgfile,'remote "origin"','url')
+e "origin is path" if src.match(/^\//)
+
+
+if m=src.match(/([A-Za-z0-9_-]{2,})@(\S+):(\S+)/)
+  user,host,path=m[1],m[2],m[3]
+  e 'repo is bare. not a good idea.' if is_bare_repo(user,host,path)
+  cmd = "git pull && ssh #{user}@#{host} \"cd #{path} && git pull #{ENV['USER']}@#{hostname}:#{git_root} #{git_branch}\" && git pull"
+  w cmd
+  rv = system cmd
+  exit rv
+end
+
