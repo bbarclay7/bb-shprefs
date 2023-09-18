@@ -12,14 +12,15 @@ require 'yaml'
 require 'pathname'
 require 'ostruct'
 
-usual_user='bbarclay'
+$usual_user='bbarclay'
 
 equivs = [["/home/bb/work","$HOME/work"]]
 
+
+$script_dir = File.expand_path(File.dirname(__FILE__))
 #
 if not ENV.has_key?('BBTB_ROOT')
-  puts "BBTB_ROOT not set.  abort."
-  exit(1)
+  ENV['BBTB_ROOT'] = $script_dir
 end
     
 
@@ -578,7 +579,7 @@ def build_prompt
   # show user @ host
   user=ENV['USER']
 
-  user = user.colorize(:red_back) if user != usual_user
+  user = user.colorize(:red_back) if user != $usual_user
 
 
   host=ENV['HOST']
@@ -588,7 +589,7 @@ def build_prompt
      shlvl=ENV['SHLVL']+" "
   end
 
-  desktopname = `desktopname`.chomp
+  desktopname = `#{$script_dir}/bin/desktopname`.chomp
   
   lines << shlvl+"#{user}@#{host} #{desktopname} "
   
@@ -681,7 +682,7 @@ if opts.p
   puts build_prompt 
 
   # add in xterm title, set to env
-  if ENV['USER'] == usual_user
+  if ENV['USER'] == $usual_user
     banner = "#{ENV['HOST']}"
   else
     banner = "#{ENV['USER']}@#{ENV['HOST']}"
