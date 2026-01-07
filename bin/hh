@@ -43,7 +43,8 @@ def main():
             # Show only commands from current directory
             # The format is: timestamp | user@host | pwd | duration: ... | exit_code: ... | cmd
             # We need to check if the pwd field matches current directory
-            parts = line.strip().split(' | ')
+            # Split on ' | ' but limit to 5 parts to avoid splitting cmd on pipes
+            parts = line.strip().split(' | ', 5)
             if len(parts) >= 5:
                 pwd = parts[2]
                 if pwd == current_dir:
