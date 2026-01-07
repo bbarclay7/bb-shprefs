@@ -1,0 +1,72 @@
+#!/bin/bash
+
+# Superpowered history utility - lists commands run in current $PWD at any time by any shell
+# Usage: hh [options]
+# Options:
+#   -h, --help     Show this help message
+#   -p, --pwd      Show only commands from current directory (default)
+#   -a, --all      Show all commands from all directories
+#   -n, --number   Show only last N commands (default: 20)
+#   -f, --file     Show commands from specific file instead of default log
+
+# Default values
+SHOW_ALL=false
+NUM_COMMANDS=20
+LOG_FILE=~/.shell_history.log
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            echo "Usage: hh [options]"
+            echo "Options:"
+            echo "  -h, --help     Show this help message"
+            echo "  -p, --pwd      Show only commands from current directory (default)"
+            echo "  -a, --all      Show all commands from all directories"
+            echo "  -n, --number   Show only last N commands (default: 20)"
+            echo "  -f, --file     Show commands from specific file instead of default log"
+            exit 0
+            ;;
+        -p|--pwd)
+            SHOW_ALL=false
+            shift
+            ;;
+        -a|--all)
+            SHOW_ALL=true
+            shift
+            ;;
+        -n|--number)
+            NUM_COMMANDS="$2"
+            shift 2
+            ;;
+        -f|--file)
+            LOG_FILE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Check if log file exists
+if [[ ! -f "$LOG_FILE" ]]; then
+    echo "No shell history log found at $LOG_FILE"
+    exit 1
+fi
+
+# Function to get current directory
+get_current_dir() {
+    pwd
+}
+
+# Main logic
+if [[ "$SHOW_ALL" == true ]]; then
+    # Show all commands from all directories
+    tail -n "$NUM_COMMANDS" "$LOG_FILE"
+else
+    # Show only commands from current directory
+    CURRENT_DIR=$(get_current_dir)
+    grep "\| $CURRENT_DIR \| " "$LOG_FILE" | tail -n "$NUM_COMMANDS"
+fi
