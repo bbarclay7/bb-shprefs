@@ -41,8 +41,13 @@ def main():
             filtered_lines.append(line.strip())
         else:
             # Show only commands from current directory
-            if f" | {current_dir} | " in line:
-                filtered_lines.append(line.strip())
+            # The format is: timestamp | user@host | pwd | duration: ... | exit_code: ... | cmd
+            # We need to check if the pwd field matches current directory
+            parts = line.strip().split(' | ')
+            if len(parts) >= 5:
+                pwd = parts[2]
+                if pwd == current_dir:
+                    filtered_lines.append(line.strip())
     
     # Apply regex filter if provided
     if args.regex:
