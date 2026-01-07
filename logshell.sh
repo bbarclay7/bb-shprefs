@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Robust shell command logging with timing and execution details
-# Usage: source logshell.sh [regex_pattern]
-# If regex_pattern is provided, only commands matching it will be logged
+# Usage: source logshell.sh
+# This script logs all commands unconditionally to ~/.shell_history.log
 
 # Function to log commands with all requested information
 log_shell_command() {
@@ -23,12 +23,7 @@ log_shell_command() {
     # Get username
     local username=$(whoami)
     
-    # Apply regex filter if provided
-    if [[ -n "$REGEX_FILTER" ]] && ! [[ "$cmd" =~ $REGEX_FILTER ]]; then
-        return  # Skip logging if command doesn't match filter
-    fi
-    
-    # Log to file with robust formatting
+    # Log to file with robust formatting - always log all commands
     echo "$(date '+%Y-%m-%d %H:%M:%S') | $username@$hostname | $pwd | $cmd | duration: ${duration}s | exit_code: $exit_code" >> ~/.shell_history.log
 }
 
@@ -39,16 +34,7 @@ trap 'log_shell_command' DEBUG
 # Set up the prompt to capture start time before each command
 PS1='\$(PREV_CMD_START=$(date +%s.%N); echo -ne "\u@\h:\w\$ ")'
 
-# Check if regex filter is provided as argument
-if [[ $# -gt 0 ]]; then
-    REGEX_FILTER="$1"
-    echo "Shell command logging initialized with regex filter: $REGEX_FILTER"
-else
-    echo "Shell command logging initialized (no regex filter)"
-fi
-
+echo "Shell command logging initialized (all commands logged)"
 echo "Commands will be logged to ~/.shell_history.log"
 echo "To use this, source this script in your shell:"
-echo "  source logshell.sh [regex_pattern]"
-echo "Example:"
-echo "  source logshell.sh 'git.*push'"
+echo "  source logshell.sh"
