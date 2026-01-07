@@ -24,7 +24,8 @@ log_shell_command() {
     local username=$(whoami)
     
     # Log to file with robust formatting - always log all commands
-    echo "$(date '+%Y-%m-%d %H:%M:%S') | $username@$hostname | $pwd | $cmd | duration: ${duration}s | exit_code: $exit_code" >> ~/.shell_history.log
+    # Put cmd as the last field to handle pipes and special characters properly
+    echo "$(date '+%Y-%m-%d %H:%M:%S') | $username@$hostname | $pwd | duration: ${duration}s | exit_code: $exit_code | $cmd" >> ~/.shell_history.log
 }
 
 # Set up the trap to capture command execution time
