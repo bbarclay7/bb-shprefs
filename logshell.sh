@@ -1,50 +1,54 @@
-#!/usr/bin/env python3
+#!/bin/bash
 
-import os
-import sys
-import time
-import subprocess
-import re
-from datetime import datetime
+# Robust shell command logging with timing and execution details
+# Usage: source logshell.sh [regex_pattern]
+# If regex_pattern is provided, only commands matching it will be logged
 
-def log_shell_command(cmd, start_time, exit_code, regex_filter=None):
-    """Log shell command with timing and execution details"""
+# Function to log commands with all requested information
+log_shell_command() {
+    local cmd="$BASH_COMMAND"
+    local exit_code=$?
+    local start_time=$PREV_CMD_START
+    local end_time=$(date +%s.%N)
     
     # Calculate duration
-    end_time = time.time()
-    duration = end_time - start_time
+    local duration=$(echo "$end_time - $start_time" | bc)
     
-    # Get current working directory
-    pwd = os.getcwd()
+    # Get current working directory (robust handling)
+    local pwd=$(pwd)
     
     # Get hostname
-    hostname = subprocess.check_output(['hostname'], text=True).strip()
+    local hostname=$(hostname)
     
     # Get username
-    username = os.getlogin()
+    local username=$(whoami)
     
     # Apply regex filter if provided
-    if regex_filter and not re.search(regex_filter, cmd):
+    if [[ -n "$REGEX_FILTER" ]] && ! [[ "$cmd" =~ $REGEX_FILTER ]]; then
         return  # Skip logging if command doesn't match filter
+    fi
     
-    # Log to file
-    log_entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {username}@{hostname} | {pwd} | {cmd} | duration: {duration:.2f}s | exit_code: {exit_code}\n"
-    
-    with open(os.path.expanduser('~/.shell_history.log'), 'a') as f:
-        f.write(log_entry)
+    # Log to file with robust formatting
+    echo "$(date '+%Y-%m-%d %H:%M:%S') | $username@$hostname | $pwd | $cmd | duration: ${duration}s | exit_code: $exit_code" >> ~/.shell_history.log
+}
 
-def main():
-    # Check if regex filter is provided as argument
-    regex_filter = sys.argv[1] if len(sys.argv) > 1 else None
-    
-    # Set up the trap to capture command execution time
-    # This would normally be done in bash, but we'll simulate it
-    print("Shell command logging initialized with regex filter:", regex_filter)
-    print("Commands will be logged to ~/.shell_history.log")
-    print("To use this, source this script in your shell:")
-    print("  source logshell.sh [regex_pattern]")
-    print("Example:")
-    print("  source logshell.sh 'git.*push'")
+# Set up the trap to capture command execution time
+PREV_CMD_START=$(date +%s.%N)
+trap 'log_shell_command' DEBUG
 
-if __name__ == "__main__":
-    main()
+# Set up the prompt to capture start time before each command
+PS1='\$(PREV_CMD_START=$(date +%s.%N); echo -ne "\u@\h:\w\$ ")'
+
+# Check if regex filter is provided as argument
+if [[ $# -gt 0 ]]; then
+    REGEX_FILTER="$1"
+    echo "Shell command logging initialized with regex filter: $REGEX_FILTER"
+else
+    echo "Shell command logging initialized (no regex filter)"
+fi
+
+echo "Commands will be logged to ~/.shell_history.log"
+echo "To use this, source this script in your shell:"
+echo "  source logshell.sh [regex_pattern]"
+echo "Example:"
+echo "  source logshell.sh 'git.*push'"
