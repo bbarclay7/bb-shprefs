@@ -6,13 +6,115 @@ import re
 import argparse
 from datetime import datetime
 
+# Detect if output is to a terminal (for color suppression)
+USE_COLOR = sys.stdout.isatty()
+
+def format_time_ago(timestamp_str):
+    """Format timestamp as relative time ago."""
+    try:
+        # Parse ISO format timestamp
+        if 'T' in timestamp_str:
+            dt = datetime.fromisoformat(timestamp_str.replace('.3N', ''))
+        else:
+            dt = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+
+        now = datetime.now()
+        diff = now - dt
+
+        seconds = diff.total_seconds()
+        if seconds < 60:
+            return f"{int(seconds)}s ago"
+        elif seconds < 3600:
+            return f"{int(seconds/60)}m ago"
+        elif seconds < 86400:
+            return f"{int(seconds/3600)}h ago"
+        else:
+            days = int(seconds/86400)
+            return f"{days}d ago"
+    except:
+        return "unknown"
+
+def parse_time_spec(spec):
+    """Parse time specifications like '2 hours ago', '2026-01-01', 'yesterday'."""
+    import re
+    from datetime import timedelta
+
+    now = datetime.now()
+
+    # Handle relative times like "2 hours ago", "30 minutes ago"
+    match = re.match(r'(\d+)\s+(second|minute|hour|day|week)s?\s+ago', spec, re.IGNORECASE)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2).lower()
+        if unit == 'second':
+            return now - timedelta(seconds=amount)
+        elif unit == 'minute':
+            return now - timedelta(minutes=amount)
+        elif unit == 'hour':
+            return now - timedelta(hours=amount)
+        elif unit == 'day':
+            return now - timedelta(days=amount)
+        elif unit == 'week':
+            return now - timedelta(weeks=amount)
+
+    # Handle ISO dates
+    try:
+        return datetime.fromisoformat(spec)
+    except:
+        pass
+
+    # Handle simple date formats
+    try:
+        return datetime.strptime(spec, '%Y-%m-%d')
+    except:
+        pass
+
+    raise ValueError(f"Cannot parse time specification: {spec}")
+
 def main():
     parser = argparse.ArgumentParser(description='Superpowered history utility - lists commands run in current $PWD at any time by any shell')
     parser.add_argument('-a', '--all', action='store_true', help='Show all commands from all directories')
-    parser.add_argument('-n', '--number', type=int, default=20, help='Show only last N commands (default: 20)')
+    parser.add_argument('-n', '--number', type=int, default=None, help='Show only last N commands (default: all)')
     parser.add_argument('-f', '--file', help='Show commands from specific file instead of default log')
     parser.add_argument('-r', '--regex', help='Filter commands using regex pattern')
-    parser.add_argument('-h', '--help', action='help', help='Show this help message')
+    parser.add_argument('-p', '--path', help='Filter by path regex instead of current $PWD')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Show verbose output with duration and pwd')
+    parser.add_argument('-i', '--interactive', action='store_true', help='Interactive fzf mode to select and paste command')
+    parser.add_argument('-d', '--dir', action='store_true', help='Interactive fzf mode to select and cd to directory')
+    parser.add_argument('--absdate', action='store_true', help='Show absolute ISO timestamp instead of relative time')
+
+    # Time-based filtering
+    parser.add_argument('--since', help='Show commands since time (e.g., "2 hours ago", "2026-01-01")')
+    parser.add_argument('--until', help='Show commands until time')
+    parser.add_argument('--today', action='store_true', help='Show only commands from today')
+    parser.add_argument('--yesterday', action='store_true', help='Show only commands from yesterday')
+    parser.add_argument('--thisweek', action='store_true', help='Show only commands from this week')
+
+    # Command analysis
+    parser.add_argument('--stats', action='store_true', help='Show statistics about command usage')
+    parser.add_argument('--failures', action='store_true', help='Show only failed commands (exit code != 0)')
+    parser.add_argument('--slow', type=float, help='Show only commands slower than N seconds')
+
+    # Better deduplication
+    parser.add_argument('--unique-args', action='store_true', help='Dedupe by command name only, ignoring arguments')
+    parser.add_argument('--keep-all-dups', action='store_true', help='Disable deduplication')
+
+    # Export
+    parser.add_argument('--export-csv', help='Export to CSV file')
+    parser.add_argument('--export-json', help='Export to JSON file')
+
+    # Session awareness
+    parser.add_argument('--session', action='store_true', help='Show only commands from current shell session')
+    parser.add_argument('--sessions', action='store_true', help='List all shell sessions')
+    parser.add_argument('--session-id', type=str, help='Filter by specific session PPID')
+
+    # Smart filtering
+    parser.add_argument('--exclude', help='Exclude commands matching regex pattern')
+    parser.add_argument('-e', '--exitcode', type=int, help='Filter by specific exit code')
+
+    # UI improvements
+    parser.add_argument('--preview', action='store_true', help='Enable fzf preview window with command details')
+    parser.add_argument('--multiselect', action='store_true', help='Allow selecting multiple commands in interactive mode')
     
     args = parser.parse_args()
     
@@ -20,7 +122,7 @@ def main():
     if args.file:
         log_file = args.file
     else:
-        log_file = os.path.expanduser('~/.shell_history.log')
+        log_file = os.path.expanduser('~/.bash_history_permanent')
     
     # Check if log file exists
     if not os.path.exists(log_file):
@@ -28,27 +130,103 @@ def main():
         sys.exit(1)
     
     # Read all lines from log file
-    with open(log_file, 'r') as f:
+    with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
         lines = f.readlines()
-    
+
+    # Handle time shortcuts
+    from datetime import timedelta
+    since_time = None
+    until_time = None
+
+    if args.today:
+        since_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    elif args.yesterday:
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        since_time = today_start - timedelta(days=1)
+        until_time = today_start
+    elif args.thisweek:
+        today = datetime.now()
+        since_time = (today - timedelta(days=today.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if args.since:
+        since_time = parse_time_spec(args.since)
+    if args.until:
+        until_time = parse_time_spec(args.until)
+
     # Filter lines based on arguments
     current_dir = os.getcwd()
+    current_ppid = os.getppid()
     filtered_lines = []
     
     for line in lines:
-        if args.all:
-            # Show all commands
-            filtered_lines.append(line.strip())
+        parts = line.strip().split('|^|')
+        if len(parts) < 8:
+            continue
+
+        # Parse fields (handle both old and new format)
+        timestamp_str = parts[0]
+        ppid = parts[4]
+        pwd = parts[5]
+        exit_code = parts[6]
+        if len(parts) >= 9:
+            duration = parts[7]
+            command = parts[8]
         else:
-            # Show only commands from current directory
-            # The format is: timestamp | user@host | pwd | duration: ... | exit_code: ... | cmd
-            # We need to check if the pwd field matches current directory
-            # Split on ' | ' but limit to 5 parts to avoid splitting cmd on pipes
-            parts = line.strip().split(' | ', 5)
-            if len(parts) >= 5:
-                pwd = parts[2]
-                if pwd == current_dir:
-                    filtered_lines.append(line.strip())
+            duration = "0"
+            command = parts[7]
+
+        # Parse timestamp for time filtering
+        try:
+            if 'T' in timestamp_str:
+                timestamp = datetime.fromisoformat(timestamp_str.replace('.3N', ''))
+            else:
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+        except:
+            continue
+
+        # Apply time filters
+        if since_time and timestamp < since_time:
+            continue
+        if until_time and timestamp > until_time:
+            continue
+
+        # Apply session filter
+        if args.session and ppid != str(current_ppid):
+            continue
+
+        # Apply session-id filter
+        if args.session_id and ppid != args.session_id:
+            continue
+
+        # Apply exit code filter
+        if args.exitcode is not None and exit_code != str(args.exitcode):
+            continue
+
+        # Apply failures filter
+        if args.failures and exit_code == "0":
+            continue
+
+        # Apply slow filter
+        if args.slow is not None:
+            try:
+                if float(duration) < args.slow:
+                    continue
+            except:
+                continue
+
+        # Apply directory filter
+        if not args.all:
+            if args.path:
+                try:
+                    if not re.search(args.path, pwd):
+                        continue
+                except re.error:
+                    continue
+            else:
+                if pwd != current_dir:
+                    continue
+
+        filtered_lines.append(line.strip())
     
     # Apply regex filter if provided
     if args.regex:
@@ -58,12 +236,420 @@ def main():
         except re.error as e:
             print(f"Invalid regex pattern: {e}")
             sys.exit(1)
+
+    # Apply exclude filter if provided
+    if args.exclude:
+        try:
+            pattern = re.compile(args.exclude)
+            filtered_lines = [line for line in filtered_lines if not pattern.search(line)]
+        except re.error as e:
+            print(f"Invalid exclude pattern: {e}")
+            sys.exit(1)
     
-    # Show last N commands
-    lines_to_show = filtered_lines[-args.number:]
-    
+    # Show last N commands (or all if N not specified)
+    if args.number is not None:
+        lines_to_show = filtered_lines[-args.number:]
+    else:
+        lines_to_show = filtered_lines
+
+    # Handle sessions listing mode
+    if args.sessions:
+        sessions = {}
+        for line in filtered_lines:
+            parts = line.split('|^|')
+            if len(parts) >= 8:
+                timestamp_str = parts[0]
+                ppid = parts[4]
+
+                # Parse timestamp
+                try:
+                    if 'T' in timestamp_str:
+                        timestamp = datetime.fromisoformat(timestamp_str.replace('.3N', ''))
+                    else:
+                        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                except:
+                    continue
+
+                if ppid not in sessions:
+                    sessions[ppid] = {
+                        'count': 0,
+                        'first': timestamp,
+                        'last': timestamp
+                    }
+
+                sessions[ppid]['count'] += 1
+                if timestamp < sessions[ppid]['first']:
+                    sessions[ppid]['first'] = timestamp
+                if timestamp > sessions[ppid]['last']:
+                    sessions[ppid]['last'] = timestamp
+
+        print("Shell Sessions:")
+        print(f"{'PPID':<10} {'Commands':>8}  {'Started':>12}  {'Duration':>10}  {'Last Activity':>12}")
+        print("-" * 70)
+
+        for ppid, info in sorted(sessions.items(), key=lambda x: x[1]['last']):
+            count = info['count']
+            first = info['first']
+            last = info['last']
+
+            # Calculate duration
+            duration = last - first
+            duration_secs = duration.total_seconds()
+            if duration_secs < 60:
+                duration_str = f"{int(duration_secs)}s"
+            elif duration_secs < 3600:
+                duration_str = f"{int(duration_secs/60)}m"
+            elif duration_secs < 86400:
+                duration_str = f"{int(duration_secs/3600)}h {int((duration_secs%3600)/60)}m"
+            else:
+                days = int(duration_secs / 86400)
+                hours = int((duration_secs % 86400) / 3600)
+                duration_str = f"{days}d {hours}h"
+
+            # Format last activity time ago
+            last_ago = format_time_ago(last.isoformat())
+
+            # Format started time ago
+            started_ago = format_time_ago(first.isoformat())
+
+            current_marker = " *" if ppid == str(current_ppid) else ""
+
+            print(f"{ppid:<10} {count:>8}  {started_ago:>12}  {duration_str:>10}  {last_ago:>12}{current_marker}")
+
+        sys.exit(0)
+
+    # Handle stats mode
+    if args.stats:
+        from collections import Counter
+
+        cmd_counts = Counter()
+        exit_codes = Counter()
+        durations = []
+
+        for line in filtered_lines:
+            parts = line.split('|^|')
+            if len(parts) >= 9:
+                exit_code = parts[6]
+                duration = parts[7]
+                command = parts[8]
+            elif len(parts) == 8:
+                exit_code = parts[6]
+                duration = "0"
+                command = parts[7]
+            else:
+                continue
+
+            # Extract command name (first word)
+            cmd_name = command.split()[0] if command else ""
+            cmd_counts[cmd_name] += 1
+            exit_codes[exit_code] += 1
+
+            try:
+                durations.append(float(duration))
+            except:
+                pass
+
+        print("=== Command Statistics ===\n")
+
+        print(f"Total commands: {len(filtered_lines)}")
+        print(f"Unique commands: {len(cmd_counts)}\n")
+
+        print("Top 10 most frequent commands:")
+        for cmd, count in cmd_counts.most_common(10):
+            print(f"  {count:4d}  {cmd}")
+
+        print("\nExit code distribution:")
+        success = exit_codes.get("0", 0)
+        total = sum(exit_codes.values())
+        if total > 0:
+            print(f"  Success (0):    {success:4d}  ({100*success/total:.1f}%)")
+            print(f"  Failures:       {total-success:4d}  ({100*(total-success)/total:.1f}%)")
+
+        if durations:
+            print(f"\nDuration statistics:")
+            print(f"  Average: {sum(durations)/len(durations):.3f}s")
+            print(f"  Median:  {sorted(durations)[len(durations)//2]:.3f}s")
+            print(f"  Max:     {max(durations):.3f}s")
+
+            # Show slowest commands
+            cmd_durations = []
+            for line in filtered_lines:
+                parts = line.split('|^|')
+                if len(parts) >= 9:
+                    duration = parts[7]
+                    command = parts[8]
+                    try:
+                        cmd_durations.append((float(duration), command))
+                    except:
+                        pass
+
+            if cmd_durations:
+                print("\nSlowest commands:")
+                for dur, cmd in sorted(cmd_durations, reverse=True)[:5]:
+                    print(f"  {dur:7.3f}s  {cmd[:60]}")
+
+        sys.exit(0)
+
+    # Handle export modes
+    if args.export_csv:
+        import csv
+        with open(args.export_csv, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Timestamp', 'User', 'Hostname', 'PID', 'PPID', 'PWD', 'ExitCode', 'Duration', 'Command'])
+            for line in filtered_lines:
+                parts = line.split('|^|')
+                writer.writerow(parts)
+        print(f"Exported {len(filtered_lines)} commands to {args.export_csv}")
+        sys.exit(0)
+
+    if args.export_json:
+        import json
+        records = []
+        for line in filtered_lines:
+            parts = line.split('|^|')
+            if len(parts) >= 9:
+                record = {
+                    'timestamp': parts[0],
+                    'user': parts[1],
+                    'hostname': parts[2],
+                    'pid': parts[3],
+                    'ppid': parts[4],
+                    'pwd': parts[5],
+                    'exit_code': int(parts[6]),
+                    'duration': float(parts[7]),
+                    'command': parts[8]
+                }
+            elif len(parts) == 8:
+                record = {
+                    'timestamp': parts[0],
+                    'user': parts[1],
+                    'hostname': parts[2],
+                    'pid': parts[3],
+                    'ppid': parts[4],
+                    'pwd': parts[5],
+                    'exit_code': int(parts[6]),
+                    'command': parts[7]
+                }
+            else:
+                continue
+            records.append(record)
+
+        with open(args.export_json, 'w') as f:
+            json.dump(records, f, indent=2)
+        print(f"Exported {len(records)} commands to {args.export_json}")
+        sys.exit(0)
+
+    # Handle interactive directory selection mode
+    if args.dir:
+        import subprocess
+        # Extract unique directories from ALL history (not filtered by current dir)
+        dirs = set()
+        for line in lines:
+            parts = line.strip().split('|^|')
+            # Handle both old (8 fields) and new (9 fields) format
+            if len(parts) >= 8:
+                pwd = parts[5]
+                # Apply path regex filter if provided
+                if args.path:
+                    try:
+                        if re.search(args.path, pwd):
+                            dirs.add(pwd)
+                    except re.error:
+                        pass
+                else:
+                    # Show all directories when no path filter
+                    dirs.add(pwd)
+
+        # Sort directories
+        sorted_dirs = sorted(dirs)
+
+        if not sorted_dirs:
+            print("No directories found", file=sys.stderr)
+            sys.exit(1)
+
+        # Pipe to fzf
+        try:
+            result = subprocess.run(
+                ['fzf', '--reverse'],
+                input='\n'.join(sorted_dirs),
+                text=True,
+                capture_output=True
+            )
+            if result.returncode == 0:
+                selected_dir = result.stdout.strip()
+                # Output just the directory path (hhd function will handle cd)
+                print(selected_dir)
+            sys.exit(0)
+        except FileNotFoundError:
+            print("Error: fzf not found. Install with: brew install fzf", file=sys.stderr)
+            sys.exit(1)
+
+    # Handle interactive command selection mode
+    if args.interactive:
+        import subprocess
+        # Build command list with formatted display
+        # Process in reverse order (newest first) and deduplicate
+        commands = []
+        command_map = {}
+        seen_commands = set()
+
+        for line in reversed(lines_to_show):
+            parts = line.split('|^|')
+
+            # Handle both old format (8 fields) and new format (9 fields with duration)
+            if len(parts) >= 9:
+                # New format with duration
+                timestamp = parts[0]
+                pwd = parts[5]
+                exit_code = parts[6]
+                duration = parts[7]
+                command = parts[8]
+            elif len(parts) == 8:
+                # Old format without duration
+                timestamp = parts[0]
+                pwd = parts[5]
+                exit_code = parts[6]
+                duration = "?"
+                command = parts[7]
+            else:
+                # Malformed line, skip
+                continue
+
+            # Skip hh and bind commands
+            cmd_stripped = command.strip()
+            if cmd_stripped.startswith('hh') or cmd_stripped.startswith('bind '):
+                continue
+
+            # Handle deduplication
+            if not args.keep_all_dups:
+                if args.unique_args:
+                    # Dedupe by command name only
+                    cmd_name = command.split()[0] if command else ""
+                    if cmd_name in seen_commands:
+                        continue
+                    seen_commands.add(cmd_name)
+                else:
+                    # Dedupe by full command
+                    if command in seen_commands:
+                        continue
+                    seen_commands.add(command)
+
+            # Format display
+            if args.absdate:
+                # Show absolute timestamp (truncate to seconds for display)
+                time_display = timestamp.split('.')[0] if '.' in timestamp else timestamp
+                time_padded = f"{time_display:>19}"  # ISO datetime is ~19 chars
+            else:
+                # Show relative time
+                time_ago = format_time_ago(timestamp)
+                time_padded = f"{time_ago:>10}"
+
+            exit_code_str = f"ec={exit_code:<3}"
+            display = f"[{time_padded} {exit_code_str}] {command}"
+
+            commands.append(display)
+            command_map[display] = command
+
+        if not commands:
+            print("No commands found", file=sys.stderr)
+            sys.exit(1)
+
+        # Build fzf command with options
+        fzf_cmd = ['fzf', '--ansi']
+
+        if args.multiselect:
+            fzf_cmd.append('--multi')
+
+        if args.preview:
+            # Create a preview command that shows full details
+            # The {} will be replaced by fzf with the selected line
+            preview_cmd = 'echo "Command: {}" | sed "s/\\[.*\\] //"'
+            fzf_cmd.extend(['--preview', preview_cmd, '--preview-window', 'up:3:wrap'])
+
+        # Pipe to fzf (cursor starts at top, which is the newest command)
+        try:
+            result = subprocess.run(
+                fzf_cmd,
+                input='\n'.join(commands),
+                text=True,
+                capture_output=True
+            )
+            if result.returncode == 0:
+                selected_lines = result.stdout.strip().split('\n')
+
+                # Extract and print commands
+                for selected in selected_lines:
+                    if selected in command_map:
+                        print(command_map[selected])
+            sys.exit(0)
+        except FileNotFoundError:
+            print("Error: fzf not found. Install with: brew install fzf", file=sys.stderr)
+            sys.exit(1)
+
+    # Normal display mode
     for line in lines_to_show:
-        print(line)
+        # Parse and format the output nicely
+        parts = line.split('|^|')
+
+        # Handle both old format (8 fields) and new format (9 fields with duration)
+        # Old: DATE|^|USER|^|HOSTNAME|^|PID|^|PPID|^|PWD|^|EXIT_CODE|^|COMMAND
+        # New: DATE|^|USER|^|HOSTNAME|^|PID|^|PPID|^|PWD|^|EXIT_CODE|^|DURATION|^|COMMAND
+        if len(parts) >= 9:
+            # New format with duration
+            timestamp = parts[0]
+            pwd = parts[5]
+            exit_code = parts[6]
+            duration = parts[7]
+            command = parts[8]
+        elif len(parts) == 8:
+            # Old format without duration
+            timestamp = parts[0]
+            pwd = parts[5]
+            exit_code = parts[6]
+            duration = "?"
+            command = parts[7]
+        else:
+            # Malformed line
+            print(line)
+            continue
+
+        # Skip hh and bind commands
+        cmd_stripped = command.strip()
+        if cmd_stripped.startswith('hh') or cmd_stripped.startswith('bind '):
+            continue
+
+        # Format time with fixed width
+        if args.absdate:
+            # Show absolute timestamp (truncate to seconds for display)
+            time_display = timestamp.split('.')[0] if '.' in timestamp else timestamp
+            time_padded = f"{time_display:>19}"  # ISO datetime is ~19 chars
+        else:
+            # Show relative time
+            time_ago = format_time_ago(timestamp)
+            time_padded = f"{time_ago:>10}"  # Right-align in 10 chars
+
+        # Format exit code with color: green for 0, red otherwise
+        # Pad exit code to ensure consistent width (up to 3 digits)
+        exit_code_str = f"ec={exit_code:<3}"  # Left-align exit code number in 3 chars
+        if USE_COLOR:
+            if exit_code == "0":
+                # Green for success
+                exit_code_colored = f"\033[32m{exit_code_str}\033[0m"
+            else:
+                # Red for failure
+                exit_code_colored = f"\033[31m{exit_code_str}\033[0m"
+            # Total width: 6 visible chars (ec=###) + 9 for color codes
+            exit_code_padded = f"{exit_code_colored:<15}"
+        else:
+            # No color when piped
+            exit_code_padded = f"{exit_code_str:<6}"
+
+        # Default format: [<time> ec=#] <command>
+        if args.verbose:
+            # Verbose: add duration and pwd at the end
+            print(f"[{time_padded} {exit_code_padded}] {command} (duration={duration}s pwd={pwd})")
+        else:
+            print(f"[{time_padded} {exit_code_padded}] {command}")
 
 if __name__ == "__main__":
     main()
