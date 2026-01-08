@@ -1,0 +1,307 @@
+#+TITLE: bb-shprefs - Brandon's Shell Preferences & History Tools
+#+AUTHOR: Brandon Barclay
+#+DATE: 2026-01-07
+
+* Overview
+
+=bb-shprefs= is a comprehensive shell environment and command history system that transforms your shell into a powerful, searchable, and analyzable workspace. It combines enhanced command logging, git-aware prompts, and sophisticated history analysis tools.
+
+* Motivation
+
+The standard shell history is limited - it only tracks commands in a basic text file without context, timing, or rich querying capabilities. This project addresses these limitations by:
+
+- *Preserving context*: Every command is logged with timestamp, directory, exit code, duration, and session information
+- *Enabling analysis*: Understand your workflow patterns, find slow commands, track failures, and analyze productivity
+- *Improving recall*: Powerful filtering and search capabilities make finding that command you ran weeks ago trivial
+- *Supporting workflows*: Interactive pickers for commands and directories streamline common tasks
+
+Whether you're debugging ("what commands did I run in this directory?"), learning ("what are my most common commands?"), or optimizing ("which commands are slow?"), this toolkit provides the answers.
+
+* Components
+
+** logshell.sh - Enhanced Shell Command Logging
+
+A robust bash script that intercepts and logs every interactive shell command with rich metadata.
+
+*** Features
+- Automatic logging of all interactive commands
+- Precise timing with subsecond duration tracking
+- Exit code capture for every command
+- Session tracking via PPID
+- Git-aware colorful prompt showing:
+  - Repository root and current path
+  - Current branch
+  - Clean/dirty status (green/red with asterisk)
+  - User, host, and directory with color coding
+- Zero configuration - just source it
+
+*** Implementation Details
+- Uses bash =DEBUG= trap to intercept commands before execution
+- Uses =PROMPT_COMMAND= to capture timing and metadata after execution
+- Logs to =~/.bash_history_permanent= in pipe-delimited format
+- Handles both interactive commands and properly skips internal operations
+
+*** Log Format
+#+begin_example
+DATE|^|USER|^|HOSTNAME|^|PID|^|PPID|^|PWD|^|EXIT_CODE|^|DURATION|^|COMMAND
+#+end_example
+
+Fields:
+- *DATE*: ISO 8601 timestamp (=2026-01-07T14:30:15.123=)
+- *USER*: Username who ran the command
+- *HOSTNAME*: Machine hostname
+- *PID*: Process ID of the shell
+- *PPID*: Parent process ID (for session tracking)
+- *PWD*: Working directory when command was run
+- *EXIT_CODE*: Command exit code (0 = success)
+- *DURATION*: Execution time in seconds with subsecond precision
+- *COMMAND*: The actual command that was executed
+
+** hh - Superpowered History Viewer
+
+A Python-based command-line tool that provides sophisticated querying, filtering, and analysis of your command history.
+
+*** Core Philosophy
+=hh= treats your shell history as a queryable database. Every dimension of your commands - time, location, success/failure, duration, session - becomes a filter you can combine to find exactly what you need.
+
+*** Key Features
+
+**** Intelligent Filtering
+- *Directory-aware*: By default shows only commands from =$PWD=
+- *Time-based*: =--today=, =--yesterday=, =--since "2 hours ago"=
+- *Session-based*: =--session= (current), =--session-id 12345= (specific)
+- *Outcome-based*: =--failures=, =--exitcode 127=
+- *Performance-based*: =--slow 5.0= (commands taking >5 seconds)
+- *Pattern-based*: =-r "git.*commit"=, =--exclude "test"=
+
+**** Interactive Modes
+- *hhi()*: Fuzzy search and execute commands (replaces Ctrl-R)
+- *hhd()*: Browse and cd to directories from history
+- Deduplication ensures newest commands appear first
+- Optional preview window (=--preview=) for detailed inspection
+- Multi-select support (=--multiselect=) for batch operations
+
+**** Statistical Analysis
+- Command frequency distribution
+- Success/failure rates
+- Duration statistics (avg, median, max)
+- Slowest commands identification
+- Session summaries with timing
+
+**** Export & Integration
+- CSV export for spreadsheet analysis
+- JSON export for programmatic processing
+- Pipe-aware color suppression for clean piped output
+- Works with standard Unix tools (grep, awk, etc.)
+
+*** Usage Examples
+
+#+begin_src bash
+# Show commands from current directory
+hh
+
+# Show all commands from all directories
+hh -a
+
+# Find that git command from yesterday
+hh --yesterday -r "^git"
+
+# What commands failed recently?
+hh --failures -n 20
+
+# Which commands are slow?
+hh --slow 5.0
+
+# Interactive search with preview
+hh -i --preview
+
+# Stats for a specific project
+hh -p "myproject" --stats
+
+# Browse all your shell sessions
+hh --sessions
+
+# Deep dive into a specific session
+hh --session-id 12345 --stats
+#+end_src
+
+*** Design Decisions
+
+**** Why Python?
+- Rich standard library (argparse, datetime, json, csv)
+- Excellent string processing and regex support
+- Cross-platform compatibility
+- Easy to extend and maintain
+
+**** Why pipe-delimited format?
+- Commands often contain spaces, tabs, and special characters
+- Pipe (=|^|=) is rare in normal commands and easy to split on
+- Human-readable when inspecting log files
+- Compatible with CSV tools with minor processing
+
+**** Why PPID for session tracking?
+- Every shell has a unique parent process ID
+- Persists across terminal reconnections
+- Works for both local and remote sessions
+- No additional configuration required
+
+** bin/add-dots.sh - Dotfile Management
+
+Helper script for managing symbolic links to dotfiles in the home directory.
+
+** Setup Scripts
+
+*** bbtb_setup.csh
+C shell setup script that configures the environment and initializes dotfiles.
+
+*** prompt_init.csh
+C shell prompt initialization.
+
+** Legacy C Shell Tools
+
+*Note*: The following are maintained for backwards compatibility with C shell (csh/tcsh) environments but are not actively developed. New users should use =logshell.sh= for bash.
+
+*** setprompt.rb
+Ruby-based prompt generator for C shell that provides:
+- Logical path substitution
+- Environment-aware prompts
+- YAML-based configuration
+
+*** setprompt.csh
+C shell wrapper that invokes =setprompt.rb= to generate prompts.
+
+These tools were the original prompt customization system before =logshell.sh= was developed. They remain in the repository for users who have existing C shell configurations.
+
+* Installation
+
+** Basic Setup
+
+#+begin_src bash
+# Clone the repository
+git clone https://github.com/bbarclay7/bb-shprefs.git ~/bb-shprefs
+
+# Add to your ~/.bashrc or ~/.bash_profile
+echo 'source ~/bb-shprefs/logshell.sh' >> ~/.bashrc
+
+# Add hh to your PATH
+echo 'export PATH="$HOME/bb-shprefs/bin:$PATH"' >> ~/.bashrc
+
+# Reload your shell
+source ~/.bashrc
+#+end_src
+
+** Requirements
+
+- Bash 4.0+ (for logshell.sh)
+- Python 3.6+ (for hh)
+- =fzf= for interactive modes: =brew install fzf= (macOS) or =apt install fzf= (Linux)
+- =bc= for duration calculations (usually pre-installed)
+- =gdate= (GNU date) for millisecond timestamps on macOS: =brew install coreutils=
+
+* Documentation
+
+See [[file:prompt_hh.md][prompt_hh.md]] for comprehensive =hh= usage documentation including:
+- All command-line options
+- Filtering strategies
+- Interactive mode details
+- Export formats
+- Common workflows
+- Integration tips
+
+* Philosophy & Design Principles
+
+** 1. Capture Everything
+Don't filter at write time - log everything and filter at read time. Storage is cheap, lost context is expensive.
+
+** 2. Rich Context by Default
+Every command is more than just text - it has timing, location, outcome, and session context. Capture it all.
+
+** 3. Query at the Speed of Thought
+Powerful filtering shouldn't require complex commands. =hh --today --failures= is faster than constructing awk pipelines.
+
+** 4. Interactive When Useful, Scriptable When Needed
+Provide both =hh -i= for exploration and =hh --export-json= for automation.
+
+** 5. Respect Unix Philosophy
+- Do one thing well (log commands, query history)
+- Play well with pipes and standard tools
+- Don't require special terminals or complex dependencies
+
+** 6. Zero Configuration
+Source the script and it works. Sensible defaults. Configuration through flags, not config files.
+
+* Use Cases
+
+** Debugging Workflows
+#+begin_src bash
+# What did I do in this directory that failed?
+hh --failures
+
+# What was that command I ran last week?
+hh --since "1 week ago" -i
+
+# Show me all commands from this project today
+hh --today -v
+#+end_src
+
+** Performance Investigation
+#+begin_src bash
+# What commands are taking forever?
+hh --slow 30
+
+# Which npm commands are slowest?
+hh -r "^npm" --stats
+#+end_src
+
+** Learning & Productivity
+#+begin_src bash
+# What are my most common commands?
+hh --stats
+
+# How successful am I with git commands?
+hh -r "^git" --stats
+
+# What directories do I work in most?
+hh -a | grep -oP 'pwd=\K[^|]+' | sort | uniq -c | sort -rn
+#+end_src
+
+** Session Management
+#+begin_src bash
+# What sessions do I have?
+hh --sessions
+
+# What did I do in that terminal yesterday?
+hh --session-id 12345
+
+# Export my work session for review
+hh --today --export-json daily_log.json
+#+end_src
+
+* Future Enhancements
+
+Potential additions (not yet implemented):
+- [ ] Visualization dashboard showing command patterns over time
+- [ ] Shell aliases recommendations based on frequent command patterns
+- [ ] Integration with tmux for session naming
+- [ ] Collaborative features (share command snippets with team)
+- [ ] AI-powered command suggestions based on history
+- [ ] Support for zsh, fish shells
+- [ ] Remote history aggregation across multiple machines
+- [ ] Git commit correlation (which commands led to which commits)
+
+* Contributing
+
+This is a personal toolkit, but if you find it useful and want to suggest improvements:
+1. Open an issue describing the enhancement
+2. For bugs, include your =hh --version= output and example commands
+3. Pull requests welcome for bug fixes and well-scoped features
+
+* License
+
+This project is personal tooling. Use freely, modify as needed, no warranty implied.
+
+* Credits
+
+Created by Brandon Barclay to solve the problem of "what was that command I ran three days ago in that project directory?"
+
+Built with assistance from Claude Code (Anthropic), which helped refine the architecture, implement features, and write this documentation.
